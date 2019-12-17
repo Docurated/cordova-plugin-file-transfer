@@ -655,8 +655,11 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
             DLog(@"File Transfer Download success");
 
             result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:[self.filePlugin makeEntryForURL:self.targetURL]];
+        } else if(self.chunkedMode && self.responseCode == 416 && [[NSFileManager defaultManager] fileExistsAtPath:[self targetFilePath]]) {
+            DLog(@"File Transfer Download success");
+
+            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:[self.filePlugin makeEntryForURL:self.targetURL]];
         } else {
-            [self removeTargetFile];
             downloadResponse = [[NSString alloc] initWithData:self.responseData encoding:NSUTF8StringEncoding];
             if (downloadResponse == nil) {
                 downloadResponse = [[NSString alloc] initWithData: self.responseData encoding:NSISOLatin1StringEncoding];
