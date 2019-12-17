@@ -188,9 +188,10 @@ FileTransfer.prototype.download = function(source, target, successCallback, erro
         options.headers[basicAuthHeader.name] = basicAuthHeader.value;
     }
 
-    var headers = null;
+    var headers = null, chunkedMode = null;
     if (options) {
         headers = options.headers || null;
+        chunkedMode = options.chunkedMode || false;
     }
 
     if (cordova.platformId === "windowsphone" && headers) {
@@ -225,7 +226,7 @@ FileTransfer.prototype.download = function(source, target, successCallback, erro
         errorCallback(error);
     };
 
-    exec(win, fail, 'FileTransfer', 'download', [source, target, trustAllHosts, this._id, headers]);
+    exec(win, fail, 'FileTransfer', 'download', [source, target, trustAllHosts, this._id, headers, chunkedMode]);
 };
 
 /**

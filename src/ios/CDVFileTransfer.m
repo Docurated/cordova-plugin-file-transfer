@@ -34,6 +34,12 @@
 #endif
 #endif
 
+@interface CDVFileTransferDelegate ()
+
+- (NSString *)targetFilePath;
+
+@end
+
 @interface CDVFileTransfer ()
 // Sets the requests headers for the request.
 - (void)applyRequestHeaders:(NSDictionary*)headers toRequest:(NSMutableURLRequest*)req;
@@ -426,6 +432,7 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
     BOOL trustAllHosts = [[command argumentAtIndex:2 withDefault:[NSNumber numberWithBool:NO]] boolValue]; // allow self-signed certs
     NSString* objectId = [command argumentAtIndex:3];
     NSDictionary* headers = [command argumentAtIndex:4 withDefault:nil];
+    BOOL chunkedMode = [[command argumentAtIndex:5 withDefault:[NSNumber numberWithBool:NO]] boolValue];
 
     CDVPluginResult* result = nil;
     CDVFileTransferError errorCode = 0;
@@ -484,9 +491,20 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
     delegate.targetURL = targetURL;
     delegate.trustAllHosts = trustAllHosts;
     delegate.filePlugin = [self.commandDelegate getCommandInstance:@"File"];
+    delegate.chunkedMode = chunkedMode;
     delegate.backgroundTaskID = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
         [delegate cancelTransfer:delegate.connection];
     }];
+
+
+    if (chunkedMode) {
+        NSString *filePath = [delegate targetFilePath];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+            NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil];
+            unsigned long long offset =  [attrs fileSize];
+            [req setValue:[NSString stringWithFormat:@"bytes=%llu-", offset] forHTTPHeaderField:@"Range"];
+        }
+    }
 
     delegate.connection = [[NSURLConnection alloc] initWithRequest:req delegate:delegate startImmediately:NO];
 
@@ -638,6 +656,7 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
 
             result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:[self.filePlugin makeEntryForURL:self.targetURL]];
         } else {
+            [self removeTargetFile];
             downloadResponse = [[NSString alloc] initWithData:self.responseData encoding:NSUTF8StringEncoding];
             if (downloadResponse == nil) {
                 downloadResponse = [[NSString alloc] initWithData: self.responseData encoding:NSISOLatin1StringEncoding];
@@ -681,7 +700,7 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
         delegate.backgroundTaskID = UIBackgroundTaskInvalid;
     }
 
-    if (self.direction == CDV_TRANSFER_DOWNLOAD) {
+    if (self.direction == CDV_TRANSFER_DOWNLOAD && !self.chunkedMode) {
         [self removeTargetFile];
     }
 }
@@ -744,6 +763,17 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
         if (filePath == nil) {
             // We couldn't find the asset.  Send the appropriate error.
             [self cancelTransferWithError:connection errorMessage:[NSString stringWithFormat:@"Could not create target file"]];
+            return;
+        }
+
+        if (self.chunkedMode && [[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+            // open target file for writing
+            self.targetFileHandle = [NSFileHandle fileHandleForUpdatingAtPath:filePath];
+            if (self.targetFileHandle == nil) {
+                [self cancelTransferWithError:connection errorMessage:@"Could not open target file for writing"];
+            }
+            DLog(@"Streaming to file %@", filePath);
+            [self.targetFileHandle seekToEndOfFile];
             return;
         }
 
